@@ -315,19 +315,10 @@ class _AppShellState extends State<AppShell> {
         title: _selectedIndex == 0
             ? Row(
                 children: [
-                  SizedBox(
-                    width: 34,
-                    height: 34,
-                    child: CustomPaint(
-                      painter: _BenchPressPainter(
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                  ),
                   Icon(
                     Icons.fitness_center,
                     color: Theme.of(context).colorScheme.primary,
-                    size: 20,
+                    size: 38,
                   ),
                   const SizedBox(width: 8),
                   Text(titles[_selectedIndex]),
@@ -387,44 +378,6 @@ class _AppShellState extends State<AppShell> {
       ),
     );
   }
-}
-
-class _BenchPressPainter extends CustomPainter {
-  const _BenchPressPainter({required this.color});
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 2.4
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..style = PaintingStyle.stroke;
-    final scale = size.width / 34;
-
-    canvas
-      ..save()
-      ..scale(scale);
-    canvas.drawLine(const Offset(2, 6), const Offset(32, 6), paint);
-    canvas.drawLine(const Offset(5, 3), const Offset(5, 9), paint);
-    canvas.drawLine(const Offset(8, 4), const Offset(8, 8), paint);
-    canvas.drawLine(const Offset(26, 4), const Offset(26, 8), paint);
-    canvas.drawLine(const Offset(29, 3), const Offset(29, 9), paint);
-    canvas.drawLine(const Offset(9, 17), const Offset(25, 17), paint);
-    canvas.drawLine(const Offset(11, 18), const Offset(8, 28), paint);
-    canvas.drawLine(const Offset(23, 18), const Offset(26, 28), paint);
-    canvas.drawLine(const Offset(8, 28), const Offset(13, 28), paint);
-    canvas.drawLine(const Offset(24, 28), const Offset(29, 28), paint);
-    canvas.drawLine(const Offset(9, 17), const Offset(9, 8), paint);
-    canvas.drawLine(const Offset(25, 17), const Offset(25, 8), paint);
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(_BenchPressPainter oldDelegate) =>
-      oldDelegate.color != color;
 }
 
 class DashboardScreen extends StatelessWidget {
