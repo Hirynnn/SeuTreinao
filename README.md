@@ -1,6 +1,6 @@
 # SeuTreinao
 
-Aplicativo mobile em Flutter e Dart para planejar e acompanhar treinos de musculação. A interface está em português brasileiro e usa tema escuro. Os dados ficam no SQLite do dispositivo; o aplicativo não tem login, backend, sincronização ou dependência de internet.
+Aplicativo mobile em Flutter e Dart para planejar e acompanhar treinos de musculação. A interface está em português brasileiro, com identidade visual vermelha e temas escuro (preto) e claro (branco), alternáveis pelo botão na barra superior. A preferência de tema fica salva no SQLite do dispositivo; o aplicativo não tem login, backend, sincronização ou dependência de internet.
 
 ## Funcionalidades
 
@@ -15,6 +15,7 @@ Aplicativo mobile em Flutter e Dart para planejar e acompanhar treinos de muscul
 - Histórico com filtros por período e status e consulta dos detalhes das séries.
 - Estatísticas básicas derivadas dos registros locais.
 - Notificação interativa de sessão no Android, incluindo ação para concluir a série atual.
+- Alternância persistente entre os temas escuro e claro.
 
 ## Tecnologias e estrutura
 

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:seu_treinao/core/app_theme.dart';
 import 'package:seu_treinao/core/enums.dart';
 import 'package:seu_treinao/core/models.dart';
 import 'package:seu_treinao/services/database_service.dart';
@@ -15,30 +16,86 @@ void main() {
   initializeDateFormatting('pt_BR').then((_) => runApp(const SeuTreinaoApp()));
 }
 
-class SeuTreinaoApp extends StatelessWidget {
+class SeuTreinaoApp extends StatefulWidget {
   const SeuTreinaoApp({super.key});
 
   @override
+  State<SeuTreinaoApp> createState() => _SeuTreinaoAppState();
+}
+
+class _SeuTreinaoAppState extends State<SeuTreinaoApp> {
+  late final Future<bool> _themePreference = _loadThemePreference();
+  bool? _selectedTheme;
+
+  Future<bool> _loadThemePreference() async {
+    final value = await AppDatabase.instance.getSetting('is_light_theme');
+    return value == 'true';
+  }
+
+  Future<void> _toggleTheme(bool isLight) async {
+    await AppDatabase.instance.setSetting('is_light_theme', '$isLight');
+    if (mounted) {
+      setState(() => _selectedTheme = isLight);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'SeuTreinao',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF7BD88F),
-          brightness: Brightness.dark,
+    return FutureBuilder<bool>(
+      future: _themePreference,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return MaterialApp(
+            title: 'SeuTreinao',
+            theme: buildSeuTreinaoTheme(Brightness.dark),
+            home: _StartupErrorScreen(error: snapshot.error),
+          );
+        }
+        final isLight = _selectedTheme ?? snapshot.data ?? false;
+        return MaterialApp(
+          title: 'SeuTreinao',
+          debugShowCheckedModeBanner: false,
+          theme: buildSeuTreinaoTheme(
+            isLight ? Brightness.light : Brightness.dark,
+          ),
+          home: snapshot.hasData
+              ? AppShell(isLightTheme: isLight, onToggleTheme: _toggleTheme)
+              : const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                ),
+        );
+      },
+    );
+  }
+}
+
+class _StartupErrorScreen extends StatelessWidget {
+  const _StartupErrorScreen({required this.error});
+
+  final Object? error;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text('Não foi possível carregar as preferências.\n$error'),
         ),
-        scaffoldBackgroundColor: const Color(0xFF101411),
       ),
-      home: const AppShell(),
     );
   }
 }
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  const AppShell({
+    super.key,
+    required this.isLightTheme,
+    required this.onToggleTheme,
+  });
+
+  final bool isLightTheme;
+  final Future<void> Function(bool isLight) onToggleTheme;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -255,7 +312,28 @@ class _AppShellState extends State<AppShell> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(titles[_selectedIndex]),
+        title: _selectedIndex == 0
+            ? Row(
+                children: [
+                  SizedBox(
+                    width: 34,
+                    height: 34,
+                    child: CustomPaint(
+                      painter: _BenchPressPainter(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    Icons.fitness_center,
+                    color: Theme.of(context).colorScheme.primary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(titles[_selectedIndex]),
+                ],
+              )
+            : Text(titles[_selectedIndex]),
         actions: [
           if (_selectedIndex == 0)
             IconButton(
@@ -263,6 +341,25 @@ class _AppShellState extends State<AppShell> {
               onPressed: openRoutine,
               icon: const Icon(Icons.calendar_month),
             ),
+          IconButton(
+            tooltip: widget.isLightTheme
+                ? 'Ativar tema escuro'
+                : 'Ativar tema claro',
+            onPressed: () async {
+              try {
+                await widget.onToggleTheme(!widget.isLightTheme);
+              } catch (error) {
+                if (context.mounted) {
+                  _showMessage('Não foi possível salvar o tema: $error');
+                }
+              }
+            },
+            icon: Icon(
+              widget.isLightTheme
+                  ? Icons.dark_mode_outlined
+                  : Icons.light_mode_outlined,
+            ),
+          ),
         ],
       ),
       body: IndexedStack(index: _selectedIndex, children: pages),
@@ -290,6 +387,44 @@ class _AppShellState extends State<AppShell> {
       ),
     );
   }
+}
+
+class _BenchPressPainter extends CustomPainter {
+  const _BenchPressPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 2.4
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+    final scale = size.width / 34;
+
+    canvas
+      ..save()
+      ..scale(scale);
+    canvas.drawLine(const Offset(2, 6), const Offset(32, 6), paint);
+    canvas.drawLine(const Offset(5, 3), const Offset(5, 9), paint);
+    canvas.drawLine(const Offset(8, 4), const Offset(8, 8), paint);
+    canvas.drawLine(const Offset(26, 4), const Offset(26, 8), paint);
+    canvas.drawLine(const Offset(29, 3), const Offset(29, 9), paint);
+    canvas.drawLine(const Offset(9, 17), const Offset(25, 17), paint);
+    canvas.drawLine(const Offset(11, 18), const Offset(8, 28), paint);
+    canvas.drawLine(const Offset(23, 18), const Offset(26, 28), paint);
+    canvas.drawLine(const Offset(8, 28), const Offset(13, 28), paint);
+    canvas.drawLine(const Offset(24, 28), const Offset(29, 28), paint);
+    canvas.drawLine(const Offset(9, 17), const Offset(9, 8), paint);
+    canvas.drawLine(const Offset(25, 17), const Offset(25, 8), paint);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_BenchPressPainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 class DashboardScreen extends StatelessWidget {
@@ -348,8 +483,10 @@ class DashboardScreen extends StatelessWidget {
                   children: [
                     Text(
                       DateFormat('EEEE, d MMMM', 'pt_BR').format(data.date),
-                      style: Theme.of(context).textTheme.titleMedium
-                          ?.copyWith(color: Colors.white70),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurface
+                            .withValues(alpha: 0.7),
+                      ),
                     ),
                     const SizedBox(height: 18),
                     Card(
