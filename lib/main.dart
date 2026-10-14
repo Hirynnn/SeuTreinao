@@ -142,9 +142,11 @@ class _AppShellState extends State<AppShell> {
 
   void refresh() => setState(() => _reload++);
 
-  Future<void> openRoutine() async {
+  Future<void> openWorkoutQueue() async {
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => RoutineScreen(onSaved: refresh)),
+      MaterialPageRoute<void>(
+        builder: (_) => WorkoutQueueScreen(onSaved: refresh),
+      ),
     );
     refresh();
   }
@@ -285,10 +287,9 @@ class _AppShellState extends State<AppShell> {
     final pages = <Widget>[
       DashboardScreen(
         key: ValueKey('dashboard-$_reload'),
-        onConfigure: openRoutine,
+        onConfigure: openWorkoutQueue,
         onStart: startWorkout,
         onContinue: continueSession,
-        onViewWorkouts: () => setState(() => _selectedIndex = 1),
       ),
       WorkoutsScreen(
         key: ValueKey('workouts-$_reload'),
@@ -328,9 +329,9 @@ class _AppShellState extends State<AppShell> {
         actions: [
           if (_selectedIndex == 0)
             IconButton(
-              tooltip: 'Editar rotina semanal',
-              onPressed: openRoutine,
-              icon: const Icon(Icons.calendar_month),
+              tooltip: 'Editar fila de treinos',
+              onPressed: openWorkoutQueue,
+              icon: const Icon(Icons.queue_play_next),
             ),
           IconButton(
             tooltip: widget.isLightTheme
@@ -386,13 +387,11 @@ class DashboardScreen extends StatelessWidget {
     required this.onConfigure,
     required this.onStart,
     required this.onContinue,
-    required this.onViewWorkouts,
   });
 
   final Future<void> Function() onConfigure;
   final Future<void> Function(Workout workout) onStart;
   final Future<void> Function(WorkoutSession session) onContinue;
-  final VoidCallback onViewWorkouts;
 
   @override
   Widget build(BuildContext context) {
@@ -412,126 +411,102 @@ class DashboardScreen extends StatelessWidget {
               return _ErrorView(error: activeSnapshot.error);
             }
             final active = activeSnapshot.data;
-            return FutureBuilder<List<TrainingDay>>(
-              future: AppDatabase.instance.listTrainingDays(),
-              builder: (context, scheduleSnapshot) {
-                if (scheduleSnapshot.hasError) {
-                  return _ErrorView(error: scheduleSnapshot.error);
-                }
-                if (!scheduleSnapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final schedule = scheduleSnapshot.data!;
-                final todayAssignment = WeeklyWorkoutRules.getWorkoutForDate(
-                  data.date,
-                  schedule,
-                );
-                final todayWorkout = data.todaysWorkout;
-                final nextWorkoutDate = WeeklyWorkoutRules.getNextWorkoutDate(
-                  data.date,
-                  schedule,
-                );
-                return ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    Text(
-                      DateFormat('EEEE, d MMMM', 'pt_BR').format(data.date),
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurface
-                            .withValues(alpha: 0.7),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              active != null
-                                  ? 'Treino em andamento'
-                                  : todayAssignment == null
-                                  ? 'Dia de descanso'
-                                  : 'Treino de hoje',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              active?.workoutName ??
-                                  todayWorkout?.name ??
-                                  'Recupere as energias',
-                              style: Theme.of(context).textTheme.headlineSmall
-                                  ?.copyWith(fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              active != null
-                                  ? 'Sua sessão está salva e pronta para continuar.'
-                                  : todayAssignment == null
-                                  ? 'A rotina não será deslocada. Seu próximo treino continua no dia programado.'
-                                  : data.status.label,
-                            ),
-                            const SizedBox(height: 18),
-                            SizedBox(
-                              width: double.infinity,
-                              child: FilledButton.icon(
-                                onPressed: active != null
-                                    ? () => onContinue(active)
-                                    : todayWorkout != null
-                                    ? () => onStart(todayWorkout)
-                                    : data.nextWorkout != null
-                                    ? onViewWorkouts
-                                    : onConfigure,
-                                icon: Icon(
-                                  active != null
-                                      ? Icons.play_arrow
-                                      : todayWorkout != null
-                                      ? Icons.fitness_center
-                                      : Icons.tune,
-                                ),
-                                label: Text(
-                                  active != null
-                                      ? 'Continuar treino'
-                                      : todayWorkout != null
-                                      ? 'Iniciar treino'
-                                      : data.nextWorkout != null
-                                      ? 'Ver próximo treino'
-                                      : 'Configurar rotina',
-                                ),
-                              ),
-                            ),
-                          ],
+            final nextWorkout = data.nextWorkout;
+            return ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Text(
+                  DateFormat('EEEE, d MMMM', 'pt_BR').format(data.date),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface
+                        .withValues(alpha: 0.7),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          active != null
+                              ? 'Treino em andamento'
+                              : nextWorkout == null
+                              ? 'Fila vazia'
+                              : 'Próximo da fila',
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _InfoCard(
-                      icon: Icons.event_available,
-                      title: 'Próximo treino',
-                      value: data.nextWorkout == null || nextWorkoutDate == null
-                          ? 'Nenhum treino programado'
-                          : '${data.nextWorkout!.name} • ${DateFormat('EEEE, d MMM', 'pt_BR').format(nextWorkoutDate)}',
-                    ),
-                    _InfoCard(
-                      icon: Icons.check_circle_outline,
-                      title: 'Última sessão concluída',
-                      value: data.lastCompletedSession == null
-                          ? 'Ainda não há sessões concluídas'
-                          : '${data.lastCompletedSession!.workoutName} • ${DateFormat('d MMM yyyy', 'pt_BR').format(data.lastCompletedSession!.startedAt)}',
-                    ),
-                    if (schedule.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: OutlinedButton.icon(
-                          onPressed: onConfigure,
-                          icon: const Icon(Icons.calendar_month),
-                          label: const Text('Configurar sua semana'),
+                        const SizedBox(height: 8),
+                        Text(
+                          active?.workoutName ??
+                              nextWorkout?.name ??
+                              'Recupere as energias',
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.bold),
                         ),
-                      ),
-                  ],
-                );
-              },
+                        const SizedBox(height: 8),
+                        Text(
+                          active != null
+                              ? 'Sua sessão está salva e pronta para continuar.'
+                              : nextWorkout == null
+                              ? 'Adicione treinos à fila para começar. A sequência avança quando uma sessão é concluída.'
+                              : 'Este é o próximo treino da fila. A sequência avança ao concluir a sessão.',
+                        ),
+                        const SizedBox(height: 18),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: active != null
+                                ? () => onContinue(active)
+                                : nextWorkout != null
+                                ? () => onStart(nextWorkout)
+                                : onConfigure,
+                            icon: Icon(
+                              active != null
+                                  ? Icons.play_arrow
+                                  : nextWorkout != null
+                                  ? Icons.fitness_center
+                                  : Icons.queue_play_next,
+                            ),
+                            label: Text(
+                              active != null
+                                  ? 'Continuar treino'
+                                  : nextWorkout != null
+                                  ? 'Iniciar próximo treino'
+                                  : 'Montar fila de treinos',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _InfoCard(
+                  icon: Icons.queue_play_next,
+                  title: 'Fila de treinos',
+                  value: data.queueLength == 0
+                      ? 'Nenhum treino adicionado'
+                      : '${data.queueLength} treinos • ciclo contínuo',
+                ),
+                _InfoCard(
+                  icon: Icons.check_circle_outline,
+                  title: 'Última sessão concluída',
+                  value: data.lastCompletedSession == null
+                      ? 'Ainda não há sessões concluídas'
+                      : '${data.lastCompletedSession!.workoutName} • ${DateFormat('d MMM yyyy', 'pt_BR').format(data.lastCompletedSession!.startedAt)}',
+                ),
+                if (data.queueLength == 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: OutlinedButton.icon(
+                      onPressed: onConfigure,
+                      icon: const Icon(Icons.queue_play_next),
+                      label: const Text('Configurar fila'),
+                    ),
+                  ),
+              ],
             );
           },
         );
@@ -571,8 +546,7 @@ class WorkoutsScreen extends StatelessWidget {
               ? const _EmptyView(
                   icon: Icons.fitness_center,
                   title: 'Nenhum treino cadastrado',
-                  subtitle:
-                      'Crie um treino para começar a planejar sua rotina.',
+                  subtitle: 'Crie um treino para adicionar à fila.',
                 )
               : ListView.builder(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
@@ -1295,25 +1269,16 @@ class _TextImportDialogState extends State<TextImportDialog> {
   }
 }
 
-class RoutineScreen extends StatefulWidget {
-  const RoutineScreen({super.key, required this.onSaved});
+class WorkoutQueueScreen extends StatefulWidget {
+  const WorkoutQueueScreen({super.key, required this.onSaved});
 
   final VoidCallback onSaved;
 
   @override
-  State<RoutineScreen> createState() => _RoutineScreenState();
+  State<WorkoutQueueScreen> createState() => _WorkoutQueueScreenState();
 }
 
-class _RoutineScreenState extends State<RoutineScreen> {
-  static const _days = [
-    'Segunda',
-    'Terça',
-    'Quarta',
-    'Quinta',
-    'Sexta',
-    'Sábado',
-    'Domingo',
-  ];
+class _WorkoutQueueScreenState extends State<WorkoutQueueScreen> {
   static const _splits = [
     'ABC',
     'ABCD',
@@ -1325,7 +1290,8 @@ class _RoutineScreenState extends State<RoutineScreen> {
     'Personalizado',
   ];
   late Future<List<Workout>> _workoutsFuture;
-  final Map<int, int?> _assignments = {};
+  final List<WorkoutQueueEntry> _queue = [];
+  int? _workoutToAdd;
   String _split = 'ABC';
   bool _loading = true;
 
@@ -1337,66 +1303,55 @@ class _RoutineScreenState extends State<RoutineScreen> {
 
   Future<void> _load() async {
     final db = AppDatabase.instance;
-    final days = await db.listTrainingDays();
-    _assignments
+    final queue = await db.listWorkoutQueue();
+    _queue
       ..clear()
-      ..addEntries(days.map((day) => MapEntry(day.weekday, day.workoutId)));
+      ..addAll(queue);
     _split = await db.getSetting('training_split') ?? 'ABC';
     _workoutsFuture = db.listWorkouts();
     if (mounted) setState(() => _loading = false);
   }
 
   Future<void> _save() async {
-    final selectedDays = _assignments.entries
-        .where((entry) => entry.value != null)
-        .toList();
-    if (selectedDays.isEmpty) {
-      _message(context, 'Associe ao menos um treino a um dia.');
-      return;
-    }
-    final workouts = await AppDatabase.instance.listWorkouts();
-    if (!mounted) return;
-    if (workouts.isEmpty) {
-      _message(context, 'Crie um treino antes de configurar sua rotina.');
-      return;
-    }
-    final active = await AppDatabase.instance.getActiveSession();
-    if (!mounted) return;
-    if (active != null) {
-      final currentSchedule = await AppDatabase.instance.listTrainingDays();
-      if (!mounted) return;
-      final originalDay = currentSchedule.where(
-        (day) => day.weekday == active.startedAt.weekday,
-      );
-      final originalWorkoutId = originalDay.isEmpty
-          ? null
-          : originalDay.first.workoutId;
-      if (_assignments[active.startedAt.weekday] != originalWorkoutId) {
-        final confirmed = await _confirm(
-          context,
-          'A rotina deste dia será alterada. A sessão em andamento continuará vinculada ao treino com que começou.',
-        );
-        if (!mounted || !confirmed) return;
-      }
-    }
-    final days = selectedDays.map((entry) {
-      final workout = workouts.where((item) => item.id == entry.value).first;
-      return TrainingDay(
-        weekday: entry.key,
-        workoutId: workout.id,
-        workoutName: workout.name,
-      );
-    }).toList();
     try {
-      await AppDatabase.instance.saveRoutine(days, split: _split);
+      await AppDatabase.instance.saveWorkoutQueue(_queue, split: _split);
     } catch (error) {
       if (mounted) {
-        _message(context, 'Não foi possível salvar a rotina: $error');
+        _message(context, 'Não foi possível salvar a fila: $error');
       }
       return;
     }
     widget.onSaved();
     if (mounted) Navigator.pop(context);
+  }
+
+  void _addWorkout(List<Workout> workouts) {
+    final workoutId = _workoutToAdd;
+    if (workoutId == null) return;
+    final workout = workouts.firstWhere((item) => item.id == workoutId);
+    setState(() {
+      _queue.add(
+        WorkoutQueueEntry(
+          position: _queue.length + 1,
+          workoutId: workoutId,
+          workoutName: workout.name,
+        ),
+      );
+      _workoutToAdd = null;
+    });
+  }
+
+  void _moveWorkout(int index, int offset) {
+    final newIndex = index + offset;
+    if (newIndex < 0 || newIndex >= _queue.length) return;
+    setState(() {
+      final entry = _queue.removeAt(index);
+      _queue.insert(newIndex, entry);
+    });
+  }
+
+  void _removeWorkout(int index) {
+    setState(() => _queue.removeAt(index));
   }
 
   @override
@@ -1405,7 +1360,7 @@ class _RoutineScreenState extends State<RoutineScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     return Scaffold(
-      appBar: AppBar(title: const Text('Rotina semanal')),
+      appBar: AppBar(title: const Text('Fila de treinos')),
       body: FutureBuilder<List<Workout>>(
         future: _workoutsFuture,
         builder: (context, snapshot) {
@@ -1437,62 +1392,107 @@ class _RoutineScreenState extends State<RoutineScreen> {
               ),
               const SizedBox(height: 24),
               Text(
-                'Etapas 2 e 3 • Dias e treinos',
+                'Ordem dos treinos',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 6),
               const Text(
-                'Deixe como descanso os dias sem treino. Cada dia aceita no máximo um treino.',
+                'A fila avança quando você conclui uma sessão e recomeça pelo primeiro treino ao chegar ao fim. Você pode repetir treinos e usar as setas para mudar a ordem.',
               ),
               const SizedBox(height: 12),
               if (workouts.isEmpty)
                 const _EmptyView(
                   icon: Icons.fitness_center,
                   title: 'Crie seu primeiro treino',
-                  subtitle: 'Salve ao menos um treino e volte para associá-lo aos dias.',
+                  subtitle: 'Crie treinos para adicioná-los à fila.',
                 ),
-              ...List.generate(7, (index) {
-                final weekday = index + 1;
-                return Card(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 4,
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(flex: 2, child: Text(_days[index])),
-                        Expanded(
-                          flex: 3,
-                          child: DropdownButtonFormField<int?>(
-                            initialValue: _assignments[weekday],
-                            decoration: const InputDecoration(
-                              border: InputBorder.none,
-                              labelText: 'Programação',
-                            ),
-                            items: [
-                              const DropdownMenuItem<int?>(
-                                value: null,
-                                child: Text('Descanso'),
-                              ),
-                              ...workouts.map(
-                                (workout) => DropdownMenuItem<int?>(
-                                  value: workout.id,
-                                  child: Text(
-                                    workout.name,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+              if (workouts.isNotEmpty)
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        key: ValueKey(_workoutToAdd),
+                        initialValue: _workoutToAdd,
+                        decoration: const InputDecoration(
+                          labelText: 'Adicionar treino',
+                        ),
+                        hint: const Text('Selecione um treino'),
+                        items: workouts
+                            .where((workout) => workout.id != null)
+                            .map(
+                              (workout) => DropdownMenuItem(
+                                value: workout.id!,
+                                child: Text(
+                                  workout.name,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                            ],
-                            onChanged: (value) => setState(() {
-                              if (value == null) {
-                                _assignments.remove(weekday);
-                              } else {
-                                _assignments[weekday] = value;
-                              }
-                            }),
+                            )
+                            .toList(),
+                        onChanged: (value) =>
+                            setState(() => _workoutToAdd = value),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton.filled(
+                      tooltip: 'Adicionar à fila',
+                      onPressed: _workoutToAdd == null
+                          ? null
+                          : () => _addWorkout(workouts),
+                      icon: const Icon(Icons.add),
+                    ),
+                  ],
+                ),
+              if (workouts.isNotEmpty) const SizedBox(height: 12),
+              if (_queue.isEmpty && workouts.isNotEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Text('A fila está vazia. Adicione um treino acima.'),
+                ),
+              ...List.generate(_queue.length, (index) {
+                final entry = _queue[index];
+                final workout = workouts.firstWhere(
+                  (item) => item.id == entry.workoutId,
+                );
+                return Card(
+                  key: ObjectKey(entry),
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 16, right: 4),
+                    child: Row(
+                      children: [
+                        Text(
+                          '${index + 1}',
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Text(
+                            workout.name,
+                            overflow: TextOverflow.ellipsis,
                           ),
+                        ),
+                        IconButton(
+                          tooltip: 'Mover para cima',
+                          onPressed: index == 0
+                              ? null
+                              : () => _moveWorkout(index, -1),
+                          icon: const Icon(Icons.arrow_upward),
+                        ),
+                        IconButton(
+                          tooltip: 'Mover para baixo',
+                          onPressed: index == _queue.length - 1
+                              ? null
+                              : () => _moveWorkout(index, 1),
+                          icon: const Icon(Icons.arrow_downward),
+                        ),
+                        IconButton(
+                          tooltip: 'Remover da fila',
+                          onPressed: () => _removeWorkout(index),
+                          icon: const Icon(Icons.delete_outline),
                         ),
                       ],
                     ),
@@ -1501,9 +1501,9 @@ class _RoutineScreenState extends State<RoutineScreen> {
               }),
               const SizedBox(height: 20),
               FilledButton.icon(
-                onPressed: workouts.isEmpty ? null : _save,
+                onPressed: _save,
                 icon: const Icon(Icons.save),
-                label: const Text('Salvar rotina'),
+                label: const Text('Salvar fila'),
               ),
             ],
           );

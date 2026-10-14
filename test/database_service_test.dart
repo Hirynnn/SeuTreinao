@@ -10,15 +10,17 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
   late Directory testDirectory;
+  late String testDatabasePath;
 
   setUpAll(() async {
     sqfliteFfiInit();
     testDirectory = await Directory.systemTemp.createTemp(
       'seu_treinao_db_test',
     );
+    testDatabasePath = p.join(testDirectory.path, 'test.db');
     AppDatabase.configureForTesting(
       factory: databaseFactoryFfi,
-      databasePath: p.join(testDirectory.path, 'test.db'),
+      databasePath: testDatabasePath,
     );
   });
 
@@ -77,14 +79,36 @@ void main() {
       ],
     );
     final workoutId = await database.saveWorkout(workout);
-    await database.saveRoutine([
-      TrainingDay(
-        weekday: DateTime.monday,
+    final nextWorkoutId = await database.saveWorkout(Workout(name: 'Treino B'));
+    await database.saveWorkoutQueue([
+      WorkoutQueueEntry(
+        position: 1,
+        workoutId: workoutId,
+        workoutName: workout.name,
+      ),
+      WorkoutQueueEntry(
+        position: 2,
+        workoutId: nextWorkoutId,
+        workoutName: 'Treino B',
+      ),
+      WorkoutQueueEntry(
+        position: 3,
         workoutId: workoutId,
         workoutName: workout.name,
       ),
     ], split: 'ABC');
+    var queue = await database.listWorkoutQueue();
+    expect(queue.map((entry) => entry.workoutId), [
+      workoutId,
+      nextWorkoutId,
+      workoutId,
+    ]);
+    expect(
+      await database.getSetting('workout_queue_next_entry_id'),
+      '${queue.first.id}',
+    );
     expect(await database.getSetting('training_split'), 'ABC');
+    expect((await database.getDashboardSnapshot()).nextWorkout?.id, workoutId);
 
     final session = WorkoutSession(
       workoutId: workoutId,
@@ -138,15 +162,134 @@ void main() {
     expect(historical.workoutName, 'Treino A');
     expect(historical.exercises.single.exerciseName, 'Supino reto');
     expect(historical.exercises.single.sets.first.actualWeight, 42.5);
+
+    progress.completeCurrentSet(actualWeight: 45, actualReps: 8);
+    await database.saveSession(progress.session);
+    queue = await database.listWorkoutQueue();
+    expect(
+      await database.getSetting('workout_queue_next_entry_id'),
+      '${queue[1].id}',
+    );
+    expect(
+      (await database.getDashboardSnapshot()).nextWorkout?.id,
+      nextWorkoutId,
+    );
+    await database.saveSession(progress.session);
+    expect(
+      await database.getSetting('workout_queue_next_entry_id'),
+      '${queue[1].id}',
+    );
+
+    await database.saveSession(
+      WorkoutSession(
+        workoutId: nextWorkoutId,
+        workoutName: 'Treino B',
+        startedAt: DateTime(2025, 1, 7, 18),
+        endedAt: DateTime(2025, 1, 7, 19),
+        status: SessionStatus.completed,
+      ),
+    );
+    expect(
+      await database.getSetting('workout_queue_next_entry_id'),
+      '${queue[2].id}',
+    );
+    await database.saveSession(
+      WorkoutSession(
+        workoutId: workoutId,
+        workoutName: 'Treino A',
+        startedAt: DateTime(2025, 1, 8, 18),
+        endedAt: DateTime(2025, 1, 8, 19),
+        status: SessionStatus.completed,
+      ),
+    );
+    expect(
+      await database.getSetting('workout_queue_next_entry_id'),
+      '${queue.first.id}',
+    );
   });
 
-  test('rejeita dois treinos programados para o mesmo dia', () async {
+  test('rejeita adicionar à fila um treino que não existe', () async {
     await expectLater(
-      AppDatabase.instance.saveTrainingDays([
-        TrainingDay(weekday: DateTime.tuesday, workoutId: 1),
-        TrainingDay(weekday: DateTime.tuesday, workoutId: 2),
-      ]),
+      AppDatabase.instance.saveWorkoutQueue([
+        WorkoutQueueEntry(
+          position: 1,
+          workoutId: -1,
+          workoutName: 'Treino inexistente',
+        ),
+      ], split: 'ABC'),
       throwsArgumentError,
     );
+  });
+
+  test('migra a rotina semanal existente para uma fila ordenada', () async {
+    await AppDatabase.closeForTesting();
+    final legacyPath = p.join(testDirectory.path, 'legacy.db');
+    final legacyDatabase = await databaseFactoryFfi.openDatabase(
+      legacyPath,
+      options: OpenDatabaseOptions(
+        version: 3,
+        onCreate: (db, _) async {
+          await db.execute('''
+            CREATE TABLE workouts (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              description TEXT
+            )
+          ''');
+          await db.execute('''
+            CREATE TABLE training_days (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              weekday INTEGER NOT NULL,
+              workout_id INTEGER,
+              workout_name TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+          ''');
+          await db.insert('workouts', {'id': 10, 'name': 'Treino A'});
+          await db.insert('workouts', {'id': 30, 'name': 'Treino B'});
+          await db.insert('training_days', {
+            'weekday': DateTime.friday,
+            'workout_id': 30,
+            'workout_name': 'Treino B',
+          });
+          await db.insert('training_days', {
+            'weekday': DateTime.monday,
+            'workout_id': 10,
+            'workout_name': 'Treino A',
+          });
+          await db.insert('training_days', {
+            'weekday': DateTime.wednesday,
+            'workout_id': 10,
+            'workout_name': 'Treino A',
+          });
+        },
+      ),
+    );
+    await legacyDatabase.close();
+
+    AppDatabase.configureForTesting(
+      factory: databaseFactoryFfi,
+      databasePath: legacyPath,
+    );
+    try {
+      final migratedQueue = await AppDatabase.instance.listWorkoutQueue();
+      expect(migratedQueue.map((entry) => entry.workoutName), [
+        'Treino A',
+        'Treino A',
+        'Treino B',
+      ]);
+      expect(migratedQueue.map((entry) => entry.position), [1, 2, 3]);
+      expect(
+        await AppDatabase.instance.getSetting('workout_queue_next_entry_id'),
+        '${migratedQueue.first.id}',
+      );
+      await AppDatabase.instance.saveWorkoutQueue(migratedQueue, split: 'ABC');
+    } finally {
+      await AppDatabase.closeForTesting();
+      AppDatabase.configureForTesting(
+        factory: databaseFactoryFfi,
+        databasePath: testDatabasePath,
+      );
+    }
   });
 }

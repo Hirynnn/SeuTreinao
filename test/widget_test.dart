@@ -5,71 +5,49 @@ import 'package:seu_treinao/services/statistics_service.dart';
 import 'package:seu_treinao/services/workout_rules.dart';
 
 void main() {
-  group('WeeklyWorkoutRules', () {
-    final schedule = <TrainingDay>[
-      TrainingDay(
-        weekday: DateTime.monday,
+  group('WorkoutQueueRules', () {
+    final queue = <WorkoutQueueEntry>[
+      WorkoutQueueEntry(
+        id: 11,
+        position: 1,
         workoutId: 1,
         workoutName: 'Treino A',
       ),
-      TrainingDay(
-        weekday: DateTime.wednesday,
+      WorkoutQueueEntry(
+        id: 12,
+        position: 2,
         workoutId: 2,
         workoutName: 'Treino B',
       ),
-      TrainingDay(
-        weekday: DateTime.friday,
-        workoutId: 3,
-        workoutName: 'Treino C',
+      WorkoutQueueEntry(
+        id: 13,
+        position: 3,
+        workoutId: 1,
+        workoutName: 'Treino A',
       ),
     ];
 
-    test('a mesma rotina não é deslocada quando um dia é perdido', () {
-      final nextDate = WeeklyWorkoutRules.getNextWorkoutDate(
-        DateTime(2025, 1, 6),
-        schedule,
-      );
-      expect(nextDate, DateTime(2025, 1, 8));
+    test('começa pelo primeiro item se ainda não há posição salva', () {
+      expect(WorkoutQueueRules.getNextEntry(queue)?.id, 11);
     });
 
-    test('dias sem treino devem ser considerados descanso', () {
-      final status = WeeklyWorkoutRules.evaluateDayStatus(
-        DateTime(2025, 1, 7),
-        schedule,
+    test('recupera a próxima posição salva da fila', () {
+      expect(
+        WorkoutQueueRules.getNextEntry(queue, nextEntryId: 12)?.workoutId,
+        2,
       );
-      expect(status, DayStatus.rest);
     });
 
-    test('dias agendados ainda não concluídos ficam pendentes', () {
-      final status = WeeklyWorkoutRules.evaluateDayStatus(
-        DateTime(2025, 1, 6),
-        schedule,
-      );
-      expect(status, DayStatus.pending);
+    test('distingue ocorrências repetidas do mesmo treino', () {
+      expect(WorkoutQueueRules.getNextEntry(queue, nextEntryId: 13)?.id, 13);
     });
 
-    test('hoje programado pode ser iniciado sem avançar a sequência', () {
-      final today = WeeklyWorkoutRules.getWorkoutForDate(
-        DateTime(2025, 1, 6),
-        schedule,
-      );
-      final next = WeeklyWorkoutRules.getNextWorkoutDate(
-        DateTime(2025, 1, 6),
-        schedule,
-      );
-
-      expect(today?.workoutName, 'Treino A');
-      expect(next, DateTime(2025, 1, 8));
+    test('posição removida recomeça no primeiro treino válido', () {
+      expect(WorkoutQueueRules.getNextEntry(queue, nextEntryId: 99)?.id, 11);
     });
 
-    test('dia de treino incompleto mantém status distinto de concluído', () {
-      final status = WeeklyWorkoutRules.evaluateDayStatus(
-        DateTime(2025, 1, 6),
-        schedule,
-        workoutIncomplete: true,
-      );
-
-      expect(status, DayStatus.incomplete);
+    test('fila vazia não tem próximo treino', () {
+      expect(WorkoutQueueRules.getNextEntry([]), isNull);
     });
   });
 

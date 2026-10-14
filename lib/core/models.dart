@@ -182,41 +182,18 @@ class Workout {
   }
 }
 
-class TrainingDay {
-  TrainingDay({
+class WorkoutQueueEntry {
+  WorkoutQueueEntry({
     this.id,
-    required this.weekday,
-    this.workoutId,
-    this.workoutName,
+    required this.position,
+    required this.workoutId,
+    required this.workoutName,
   });
 
   final int? id;
-  final int weekday;
-  final int? workoutId;
-  final String? workoutName;
-
-  TrainingDay copyWith({
-    int? id,
-    int? weekday,
-    int? workoutId,
-    String? workoutName,
-  }) {
-    return TrainingDay(
-      id: id ?? this.id,
-      weekday: weekday ?? this.weekday,
-      workoutId: workoutId ?? this.workoutId,
-      workoutName: workoutName ?? this.workoutName,
-    );
-  }
-
-  Map<String, Object?> toMap() {
-    return {
-      'id': id,
-      'weekday': weekday,
-      'workout_id': workoutId,
-      'workout_name': workoutName,
-    };
-  }
+  final int position;
+  final int workoutId;
+  final String workoutName;
 }
 
 class WorkoutSession {
@@ -389,17 +366,15 @@ class SessionSet {
 class DashboardSnapshot {
   DashboardSnapshot({
     required this.date,
-    required this.status,
-    required this.todaysWorkout,
     required this.nextWorkout,
+    required this.queueLength,
     required this.lastCompletedSession,
     required this.hasActiveSession,
   });
 
   final DateTime date;
-  final DayStatus status;
-  final Workout? todaysWorkout;
   final Workout? nextWorkout;
+  final int queueLength;
   final WorkoutSession? lastCompletedSession;
   final bool hasActiveSession;
 }

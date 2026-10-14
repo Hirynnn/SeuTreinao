@@ -4,8 +4,8 @@ Aplicativo mobile em Flutter e Dart para planejar e acompanhar treinos de muscul
 
 ## Funcionalidades
 
-- Rotina semanal com divisão de treino e um treino por dia; dias sem associação são descanso.
-- Programação baseada no calendário: perder um dia não desloca as sessões seguintes.
+- Fila ordenada e cíclica de treinos, independente dos dias da semana; permite repetir treinos e sessões incompletas não avançam a fila.
+- Reordenação da fila pelo usuário; ao concluir o último treino, a sequência recomeça pelo primeiro.
 - Catálogo local com mais de 80 exercícios pré-cadastrados, organizado por grupo muscular, além de exercícios personalizados.
 - Criação, edição, duplicação e exclusão protegida de treinos.
 - Seleção e reordenação de exercícios; séries com carga e repetições planejadas individualmente.
@@ -27,10 +27,10 @@ Aplicativo mobile em Flutter e Dart para planejar e acompanhar treinos de muscul
 
 Arquivos principais:
 
-- `lib/main.dart`: navegação e telas de rotina, dashboard, treinos, exercícios, execução, histórico e estatísticas.
-- `lib/core/models.dart`: modelos de exercícios, treinos, rotina e sessões.
+- `lib/main.dart`: navegação e telas da fila, dashboard, treinos, exercícios, execução, histórico e estatísticas.
+- `lib/core/models.dart`: modelos de exercícios, treinos, fila e sessões.
 - `lib/core/enums.dart`: estados de dia e sessão.
-- `lib/services/workout_rules.dart`: regras da programação semanal e progressão de séries.
+- `lib/services/workout_rules.dart`: regras da fila cíclica e progressão de séries.
 - `lib/services/database_service.dart`: esquema versionado, catálogo inicial e persistência SQLite.
 - `lib/services/notification_service.dart`: notificação interativa Android.
 - `lib/services/statistics_service.dart`: cálculo isolado das estatísticas.
@@ -89,7 +89,7 @@ Os arquivos são gerados em `build/app/outputs/flutter-apk/` (`app-debug.apk` e 
 
 ## Persistência e migrações
 
-O arquivo SQLite é criado localmente como `seu_treinao.db`; a versão do esquema é incrementada sem apagar o banco em atualizações. O catálogo pré-cadastrado é inserido também em bancos já existentes, sem recriar nomes que já estão presentes.
+O arquivo SQLite é criado localmente como `seu_treinao.db`; a versão do esquema é incrementada sem apagar o banco em atualizações. Ao atualizar de uma versão anterior, os treinos associados aos dias da semana são migrados para a fila na ordem de segunda a domingo. O catálogo pré-cadastrado é inserido também em bancos já existentes, sem recriar nomes que já estão presentes.
 
 Como os dados são locais, não há sincronização ou cópia na nuvem. Desinstalar o aplicativo pode remover os dados armazenados pelo Android.
 

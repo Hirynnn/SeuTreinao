@@ -46,7 +46,7 @@ class AppDatabase {
     return factory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 3,
+        version: 4,
         onConfigure: (db) async {
           await db.execute('PRAGMA foreign_keys = ON');
         },
@@ -61,6 +61,31 @@ class AppDatabase {
             );
           }
           await _createDb(db, newVersion);
+          if (oldVersion < 4) {
+            final oldDays = await db.query(
+              'training_days',
+              orderBy: 'weekday ASC',
+            );
+            var position = 1;
+            int? firstEntryId;
+            for (final day in oldDays) {
+              final workoutId = day['workout_id'];
+              if (workoutId is! int) continue;
+              final entryId = await db.insert('workout_queue', {
+                'position': position++,
+                'workout_id': workoutId,
+                'workout_name': day['workout_name'] ?? 'Treino',
+              });
+              firstEntryId ??= entryId;
+            }
+            if (firstEntryId != null) {
+              await db.insert('app_settings', {
+                'key': 'workout_queue_next_entry_id',
+                'value': '$firstEntryId',
+              }, conflictAlgorithm: ConflictAlgorithm.replace);
+            }
+            await db.execute('DROP TABLE IF EXISTS training_days');
+          }
         },
         onOpen: (db) async {
           await _seedExerciseCatalog(db);
@@ -110,17 +135,13 @@ class AppDatabase {
       )
     ''');
     await db.execute('''
-      CREATE TABLE IF NOT EXISTS training_days (
+      CREATE TABLE IF NOT EXISTS workout_queue (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        weekday INTEGER NOT NULL,
-        workout_id INTEGER,
-        workout_name TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        position INTEGER NOT NULL UNIQUE,
+        workout_id INTEGER NOT NULL,
+        workout_name TEXT NOT NULL
       )
     ''');
-    await db.execute(
-      'CREATE UNIQUE INDEX IF NOT EXISTS training_days_weekday_idx ON training_days(weekday)',
-    );
     await db.execute('''
       CREATE TABLE IF NOT EXISTS workout_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -461,78 +482,123 @@ class AppDatabase {
 
   Future<void> deleteWorkout(int id) async {
     final db = await database;
-    final usedDays = Sqflite.firstIntValue(
+    final queued = Sqflite.firstIntValue(
       await db.rawQuery(
-        'SELECT COUNT(*) FROM training_days WHERE workout_id = ?',
+        'SELECT COUNT(*) FROM workout_queue WHERE workout_id = ?',
         [id],
       ),
     );
-    if ((usedDays ?? 0) > 0) {
-      throw StateError(
-        'Remova este treino da rotina semanal antes de excluí-lo.',
-      );
+    if ((queued ?? 0) > 0) {
+      throw StateError('Remova este treino da fila antes de excluí-lo.');
     }
     await db.delete('workouts', where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<List<TrainingDay>> listTrainingDays() async {
+  Future<List<WorkoutQueueEntry>> listWorkoutQueue() async {
     final db = await database;
-    final rows = await db.query('training_days', orderBy: 'weekday ASC');
+    final rows = await db.query('workout_queue', orderBy: 'position ASC');
     return rows
         .map(
-          (row) => TrainingDay(
+          (row) => WorkoutQueueEntry(
             id: row['id'] as int?,
-            weekday: (row['weekday'] as int?) ?? 1,
-            workoutId: row['workout_id'] as int?,
-            workoutName: row['workout_name'] as String?,
+            position: (row['position'] as int?) ?? 1,
+            workoutId: row['workout_id'] as int,
+            workoutName: row['workout_name'] as String,
           ),
         )
         .toList();
   }
 
-  Future<void> saveTrainingDays(List<TrainingDay> days) async {
-    final db = await database;
-    if (days.map((day) => day.weekday).toSet().length != days.length) {
-      throw ArgumentError('Só pode haver um treino por dia da semana.');
-    }
-    if (days.any(
-      (day) => day.weekday < DateTime.monday || day.weekday > DateTime.sunday,
-    )) {
-      throw ArgumentError('Dia da semana inválido.');
-    }
-    await db.transaction((txn) async {
-      await txn.delete('training_days');
-      for (final day in days) {
-        await txn.insert('training_days', {
-          'weekday': day.weekday,
-          'workout_id': day.workoutId,
-          'workout_name': day.workoutName,
-        });
-      }
-    });
-  }
-
-  Future<void> saveRoutine(
-    List<TrainingDay> days, {
+  Future<void> saveWorkoutQueue(
+    List<WorkoutQueueEntry> queue, {
     required String split,
   }) async {
-    if (days.map((day) => day.weekday).toSet().length != days.length) {
-      throw ArgumentError('Só pode haver um treino por dia da semana.');
-    }
-    if (days.any(
-      (day) => day.weekday < DateTime.monday || day.weekday > DateTime.sunday,
-    )) {
-      throw ArgumentError('Dia da semana inválido.');
-    }
     final db = await database;
+    final workouts = await listWorkouts();
+    final workoutsById = {for (final workout in workouts) workout.id!: workout};
+    if (queue.any((entry) => !workoutsById.containsKey(entry.workoutId))) {
+      throw ArgumentError('A fila contém um treino que não existe.');
+    }
     await db.transaction((txn) async {
-      await txn.delete('training_days');
-      for (final day in days) {
-        await txn.insert('training_days', {
-          'weekday': day.weekday,
-          'workout_id': day.workoutId,
-          'workout_name': day.workoutName,
-        });
+      final oldRows = await txn.query('workout_queue', columns: ['id']);
+      final oldIds = oldRows.map((row) => row['id'] as int).toSet();
+      final retainedIds = queue
+          .map((entry) => entry.id)
+          .whereType<int>()
+          .toSet();
+      final providedIds = queue
+          .map((entry) => entry.id)
+          .whereType<int>()
+          .length;
+      if (retainedIds.length != providedIds) {
+        throw ArgumentError('A fila contém uma posição repetida.');
+      }
+      if (retainedIds.any((id) => !oldIds.contains(id))) {
+        throw ArgumentError('A fila contém uma posição inválida.');
+      }
+
+      final pointerRows = await txn.query(
+        'app_settings',
+        columns: ['value'],
+        where: 'key = ?',
+        whereArgs: ['workout_queue_next_entry_id'],
+      );
+      final currentPointerId = pointerRows.isEmpty
+          ? null
+          : int.tryParse(pointerRows.first['value'] as String? ?? '');
+
+      await txn.rawUpdate('UPDATE workout_queue SET position = -position');
+      if (retainedIds.isEmpty) {
+        await txn.delete('workout_queue');
+      } else {
+        final placeholders = List.filled(retainedIds.length, '?').join(', ');
+        await txn.delete(
+          'workout_queue',
+          where: 'id NOT IN ($placeholders)',
+          whereArgs: retainedIds.toList(),
+        );
+      }
+
+      int? firstEntryId;
+      var currentPointerStillQueued = false;
+      for (var index = 0; index < queue.length; index++) {
+        final entry = queue[index];
+        final workout = workoutsById[entry.workoutId]!;
+        final values = {
+          'position': index + 1,
+          'workout_id': workout.id,
+          'workout_name': workout.name,
+        };
+        final entryId = entry.id;
+        if (entryId == null) {
+          final insertedId = await txn.insert('workout_queue', values);
+          firstEntryId ??= insertedId;
+        } else {
+          await txn.update(
+            'workout_queue',
+            values,
+            where: 'id = ?',
+            whereArgs: [entryId],
+          );
+          firstEntryId ??= entryId;
+          if (entryId == currentPointerId) currentPointerStillQueued = true;
+        }
+      }
+
+      if (queue.isEmpty) {
+        await txn.delete(
+          'app_settings',
+          where: 'key = ?',
+          whereArgs: ['workout_queue_next_entry_id'],
+        );
+      } else {
+        final nextEntryId = currentPointerStillQueued
+            ? currentPointerId
+            : firstEntryId;
+        await txn.insert('app_settings', {
+          'key': 'workout_queue_next_entry_id',
+          'value': '$nextEntryId',
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await txn.insert('app_settings', {
         'key': 'training_split',
@@ -563,6 +629,7 @@ class AppDatabase {
   Future<void> saveSession(WorkoutSession session) async {
     final db = await database;
     await db.transaction((txn) async {
+      var wasCompleted = false;
       if (session.id == null) {
         final id = await txn.insert('workout_sessions', {
           'workout_id': session.workoutId,
@@ -601,6 +668,15 @@ class AppDatabase {
           }
         }
       } else {
+        final existingRows = await txn.query(
+          'workout_sessions',
+          columns: ['status'],
+          where: 'id = ?',
+          whereArgs: [session.id],
+        );
+        wasCompleted =
+            existingRows.isNotEmpty &&
+            existingRows.first['status'] == SessionStatus.completed.name;
         await txn.update(
           'workout_sessions',
           {
@@ -648,7 +724,41 @@ class AppDatabase {
           }
         }
       }
+      if (session.status == SessionStatus.completed && !wasCompleted) {
+        await _advanceWorkoutQueue(txn, session.workoutId);
+      }
     });
+  }
+
+  Future<void> _advanceWorkoutQueue(
+    DatabaseExecutor txn,
+    int completedWorkoutId,
+  ) async {
+    final queue = await txn.query('workout_queue', orderBy: 'position ASC');
+    if (queue.isEmpty) return;
+
+    final pointerRows = await txn.query(
+      'app_settings',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: ['workout_queue_next_entry_id'],
+    );
+    final pointerId = pointerRows.isEmpty
+        ? null
+        : int.tryParse(pointerRows.first['value'] as String? ?? '');
+    final startIndex = queue.indexWhere((entry) => entry['id'] == pointerId);
+    final start = startIndex < 0 ? 0 : startIndex;
+
+    for (var offset = 0; offset < queue.length; offset++) {
+      final index = (start + offset) % queue.length;
+      if (queue[index]['workout_id'] != completedWorkoutId) continue;
+      final nextEntry = queue[(index + 1) % queue.length];
+      await txn.insert('app_settings', {
+        'key': 'workout_queue_next_entry_id',
+        'value': '${nextEntry['id']}',
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      return;
+    }
   }
 
   Future<List<WorkoutSession>> listSessions() async {
@@ -746,7 +856,7 @@ class AppDatabase {
   Future<DashboardSnapshot> getDashboardSnapshot() async {
     final date = DateTime.now();
     final workouts = await listWorkouts();
-    final schedule = await listTrainingDays();
+    final queue = await listWorkoutQueue();
     final sessions = await listSessions();
     WorkoutSession? latestSession;
     for (final session in sessions) {
@@ -755,59 +865,28 @@ class AppDatabase {
         break;
       }
     }
-    bool sameLocalDay(WorkoutSession session) =>
-        session.startedAt.year == date.year &&
-        session.startedAt.month == date.month &&
-        session.startedAt.day == date.day;
-    final completedToday = sessions.any(
-      (session) =>
-          sameLocalDay(session) && session.status == SessionStatus.completed,
+    final nextEntryId = int.tryParse(
+      await getSetting('workout_queue_next_entry_id') ?? '',
     );
-    final incompleteToday = sessions.any(
-      (session) =>
-          sameLocalDay(session) && session.status == SessionStatus.incomplete,
+    final nextEntry = WorkoutQueueRules.getNextEntry(
+      queue,
+      nextEntryId: nextEntryId,
     );
-
-    final dayAssignment = WeeklyWorkoutRules.getWorkoutForDate(date, schedule);
-    Workout? workout;
-    if (dayAssignment != null) {
-      for (final item in workouts) {
-        if (item.id == dayAssignment.workoutId) {
-          workout = item;
+    Workout? nextWorkout;
+    if (nextEntry != null) {
+      for (final workout in workouts) {
+        if (workout.id == nextEntry.workoutId) {
+          nextWorkout = workout;
           break;
         }
       }
     }
-
-    final nextDate =
-        WeeklyWorkoutRules.getNextWorkoutDate(date, schedule) ?? date;
-    Workout? nextWorkout;
-    for (final element in schedule) {
-      if (element.weekday == nextDate.weekday) {
-        for (final workoutItem in workouts) {
-          if (workoutItem.id == element.workoutId) {
-            nextWorkout = workoutItem;
-            break;
-          }
-        }
-        break;
-      }
-    }
-
     final activeSession = await getActiveSession();
-    final status = WeeklyWorkoutRules.evaluateDayStatus(
-      date,
-      schedule,
-      workoutCompleted: completedToday,
-      workoutIncomplete: incompleteToday,
-      workoutInProgress: activeSession != null,
-    );
 
     return DashboardSnapshot(
       date: date,
-      status: status,
-      todaysWorkout: workout,
       nextWorkout: nextWorkout,
+      queueLength: queue.length,
       lastCompletedSession: latestSession,
       hasActiveSession: activeSession != null,
     );

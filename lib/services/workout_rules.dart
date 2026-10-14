@@ -1,55 +1,16 @@
 import 'package:seu_treinao/core/enums.dart';
 import 'package:seu_treinao/core/models.dart';
 
-class WeeklyWorkoutRules {
-  static TrainingDay? getWorkoutForDate(
-    DateTime date,
-    List<TrainingDay> schedule,
-  ) {
-    final weekday = date.weekday;
-    for (final trainingDay in schedule) {
-      if (trainingDay.weekday == weekday) {
-        return trainingDay;
-      }
-    }
-    return null;
-  }
-
-  static DateTime? getNextWorkoutDate(
-    DateTime from,
-    List<TrainingDay> schedule, {
-    int maxDays = 366,
+class WorkoutQueueRules {
+  static WorkoutQueueEntry? getNextEntry(
+    List<WorkoutQueueEntry> queue, {
+    int? nextEntryId,
   }) {
-    for (var offset = 1; offset <= maxDays; offset++) {
-      final candidate = from.add(Duration(days: offset));
-      if (getWorkoutForDate(candidate, schedule) != null) {
-        return candidate;
-      }
-    }
-    return null;
-  }
-
-  static DayStatus evaluateDayStatus(
-    DateTime date,
-    List<TrainingDay> schedule, {
-    bool workoutCompleted = false,
-    bool workoutInProgress = false,
-    bool workoutIncomplete = false,
-  }) {
-    final hasWorkout = getWorkoutForDate(date, schedule) != null;
-    if (!hasWorkout) {
-      return DayStatus.rest;
-    }
-    if (workoutInProgress) {
-      return DayStatus.inProgress;
-    }
-    if (workoutCompleted) {
-      return DayStatus.completed;
-    }
-    if (workoutIncomplete) {
-      return DayStatus.incomplete;
-    }
-    return DayStatus.pending;
+    if (queue.isEmpty) return null;
+    return queue.firstWhere(
+      (entry) => entry.id == nextEntryId,
+      orElse: () => queue.first,
+    );
   }
 }
 
